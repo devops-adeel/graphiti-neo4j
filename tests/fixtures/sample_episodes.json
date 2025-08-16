@@ -1,0 +1,127 @@
+{
+  "conversations": [
+    {
+      "id": "conv_001",
+      "messages": [
+        "Customer: Hi, I'm looking for running shoes",
+        "Agent: I'd be happy to help! What's your usual shoe size?",
+        "Customer: I wear size 10, and I prefer cushioned soles",
+        "Agent: Perfect! Our Wool Runners have excellent cushioning and come in size 10",
+        "Customer: What colors are available?",
+        "Agent: We have them in Natural Black, Tree Green, and Mist Blue",
+        "Customer: I'll take the Natural Black ones"
+      ]
+    },
+    {
+      "id": "conv_002",
+      "messages": [
+        "Customer: I need to return my recent purchase",
+        "Agent: I'm sorry to hear that. What was the issue?",
+        "Customer: The shoes are too narrow for my wide feet",
+        "Agent: We do offer wide sizes. Would you like to exchange for a wide version?",
+        "Customer: Yes, that would be great",
+        "Agent: I'll process the exchange for you right away"
+      ]
+    }
+  ],
+  "products": [
+    {
+      "id": "PROD_WR_001",
+      "name": "Wool Runners",
+      "description": "Lightweight, breathable running shoes made from merino wool",
+      "price": 98,
+      "sizes": [7, 8, 9, 10, 11, 12],
+      "colors": ["Natural Black", "Tree Green", "Mist Blue"],
+      "materials": ["Merino Wool", "Eucalyptus Fiber", "Castor Bean Oil"],
+      "categories": ["Running", "Athletic", "Sustainable"]
+    },
+    {
+      "id": "PROD_TD_001",
+      "name": "Tree Dashers",
+      "description": "Performance running shoes with extra support",
+      "price": 135,
+      "sizes": [6, 7, 8, 9, 10, 11, 12, 13],
+      "colors": ["Thunder", "Flame", "Aurora"],
+      "materials": ["Eucalyptus Tree Fiber", "Natural Rubber", "Castor Bean Oil"],
+      "categories": ["Running", "Performance", "Sustainable"]
+    },
+    {
+      "id": "PROD_WL_001",
+      "name": "Wool Loungers",
+      "description": "Casual slip-on shoes perfect for everyday wear",
+      "price": 95,
+      "sizes": [7, 8, 9, 10, 11],
+      "colors": ["Dapple Gray", "Natural White", "Savanna Night"],
+      "materials": ["Merino Wool", "Recycled Polyester", "Bio-based TPU"],
+      "categories": ["Casual", "Comfort", "Sustainable"]
+    }
+  ],
+  "customers": [
+    {
+      "id": "CUST_001",
+      "name": "John Smith",
+      "preferences": {
+        "size": 10,
+        "width": "regular",
+        "colors": ["blue", "black"],
+        "activities": ["running", "walking"],
+        "budget_max": 150
+      },
+      "purchase_history": [
+        {
+          "product": "Wool Runners",
+          "date": "2024-01-15",
+          "satisfaction": "high"
+        }
+      ]
+    },
+    {
+      "id": "CUST_002",
+      "name": "Sarah Johnson",
+      "preferences": {
+        "size": 8,
+        "width": "wide",
+        "colors": ["white", "gray"],
+        "activities": ["casual", "work"],
+        "budget_max": 100
+      },
+      "purchase_history": [
+        {
+          "product": "Wool Loungers",
+          "date": "2024-02-01",
+          "satisfaction": "medium",
+          "issue": "needed wide fit"
+        }
+      ]
+    }
+  ],
+  "inventory_updates": [
+    {
+      "timestamp": "2024-03-01T10:00:00Z",
+      "updates": {
+        "Wool Runners": {
+          "Natural Black": {"10": 45, "11": 23},
+          "Tree Green": {"10": 0, "11": 12}
+        },
+        "Tree Dashers": {
+          "Thunder": {"all_sizes": "in_stock"},
+          "Flame": {"10": 5, "11": 3}
+        }
+      }
+    }
+  ],
+  "reviews": [
+    {
+      "product": "Wool Runners",
+      "customer": "verified_buyer_1",
+      "rating": 5,
+      "text": "Most comfortable running shoes I've ever owned. The merino wool is incredibly soft."
+    },
+    {
+      "product": "Tree Dashers",
+      "customer": "verified_buyer_2",
+      "rating": 4,
+      "text": "Great for long runs but took a few days to break in."
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+# Core dependencies
+graphiti-core[neo4j]>=0.4.0
+neo4j>=5.26.0
+python-dotenv>=1.0.0
+
+# Testing framework
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-benchmark>=4.0.0
+pytest-timeout>=2.2.0
+pytest-cov>=4.1.0
+
+# Retry and resilience
+tenacity>=8.2.0
+
+# Performance monitoring
+psutil>=5.9.0
+
+# Data generation
+faker>=20.0.0
+
+# Time manipulation for temporal tests
+freezegun>=1.5.0
+
+# JSON handling
+jsonschema>=4.20.0
+
+# Async utilities
+aiofiles>=23.0.0
+
+# Logging
+colorlog>=6.8.0
