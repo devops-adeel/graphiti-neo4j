@@ -1,0 +1,364 @@
+# Neo4j Backup Service Configuration for Graphiti
+# Uses offen/docker-volume-backup for sophisticated backup management
+# Addresses Neo4j Community Edition requirement: database must be stopped for consistent backups
+#
+# Architecture:
+#   - backup-daily: Daily backups with 7-day retention (full database + transaction logs)
+#   - backup-weekly: Weekly backups with 4-week retention (Sundays)
+#   - backup-monthly: Monthly backups with 12-month retention (1st of month)
+#   - backup-monitor: Lightweight metrics exporter for backup validation
+#
+# Features:
+#   - Graceful Neo4j shutdown during backup (required for consistency)
+#   - Dual format: volume archives + neo4j-admin dumps
+#   - Automatic external drive sync when available
+#   - Pre/post backup hooks for integrity checks
+#   - Integration with memory forensics monitoring
+#
+# Usage:
+#   Start backup services: docker compose -f docker-compose.yml -f docker-compose.backup.yml up -d
+#   Manual backup: docker compose -f docker-compose.yml -f docker-compose.backup.yml run --rm backup-manual
+#   Verify backups: ./scripts/verify-backup.sh
+#   View backup metrics: http://localhost:2004/metrics (Prometheus endpoint)
+
+services:
+  # Daily backups with 7-day retention
+  backup-daily:
+    image: offen/docker-volume-backup:${BACKUP_VERSION:-v2.43.0}
+    container_name: neo4j-backup-daily
+    restart: unless-stopped
+    environment:
+      # Schedule and retention
+      BACKUP_FILENAME: neo4j-daily-%Y-%m-%d_%H-%M-%S.tar.gz
+      BACKUP_CRON_EXPRESSION: ${BACKUP_CRON_DAILY:-0 2 * * *}  # Daily at 2 AM
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAILY:-7}
+      BACKUP_PRUNING_PREFIX: neo4j-daily-
+      BACKUP_PRUNING_LEEWAY: 1h
+      
+      # CRITICAL: Stop Neo4j during backup (Community Edition requirement)
+      BACKUP_STOP_DURING_BACKUP_LABEL: neo4j-graphiti
+      BACKUP_STOP_SERVICE_TIMEOUT: 10m  # Allow time for cache flush
+      
+      # Execute pre/post backup hooks
+      EXEC_LABEL: neo4j-backup-hooks
+      EXEC_FORWARD_OUTPUT: true
+      
+      # Storage configuration
+      BACKUP_ARCHIVE: /archive/daily
+      BACKUP_LATEST_SYMLINK: neo4j-daily-latest.tar.gz
+      BACKUP_COMPRESSION: gz
+      GZIP_PARALLELISM: ${GZIP_PARALLELISM:-4}
+      
+      # Notifications
+      NOTIFICATION_LEVEL: ${NOTIFICATION_LEVEL:-error}
+      NOTIFICATION_URLS: ${NOTIFICATION_URLS:-}
+      
+    volumes:
+      # Neo4j data volumes (read-only)
+      - neo4j-data:/backup/data:ro
+      - neo4j-logs:/backup/logs:ro
+      - neo4j-import:/backup/import:ro
+      - neo4j-plugins:/backup/plugins:ro
+      - neo4j-conf:/backup/conf:ro
+      
+      # Memory forensics data
+      - neo4j-metrics:/backup/metrics:ro
+      - neo4j-heap-dumps:/backup/heap-dumps:ro
+      
+      # Docker socket for container control
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      
+      # Backup storage locations
+      - ${BACKUP_DIR:-${HOME}/Neo4jBackups}/daily:/archive/daily
+      - ${BACKUP_DIR:-${HOME}/Neo4jBackups}/dumps:/dumps
+      
+      # External drive mount (when available)
+      # Automatically detected and synced when mounted
+      # - /Volumes/${EXTERNAL_DRIVE:-SanDisk}/Neo4jBackups:/external:rw
+      
+      # Scripts for hooks
+      - ./scripts:/scripts:ro
+      
+    labels:
+      # Pre-backup: Create neo4j-admin dump for portability
+      - docker-volume-backup.exec-pre=/scripts/backup-hooks.sh pre-backup daily
+      
+      # Post-backup: Verify integrity and sync to external
+      - docker-volume-backup.archive-post=/scripts/backup-hooks.sh post-backup daily
+      
+    networks:
+      - orbstack-shared
+    
+    depends_on:
+      - neo4j
+      
+    profiles:
+      - backup
+      - daily
+
+  # Weekly backups with 4-week retention (Sundays)
+  backup-weekly:
+    image: offen/docker-volume-backup:${BACKUP_VERSION:-v2.43.0}
+    container_name: neo4j-backup-weekly
+    restart: unless-stopped
+    environment:
+      # Schedule and retention
+      BACKUP_FILENAME: neo4j-weekly-%Y-%m-%d.tar.gz
+      BACKUP_CRON_EXPRESSION: ${BACKUP_CRON_WEEKLY:-0 3 * * 0}  # Sundays at 3 AM
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_WEEKLY:-28}
+      BACKUP_PRUNING_PREFIX: neo4j-weekly-
+      
+      # Container management
+      BACKUP_STOP_DURING_BACKUP_LABEL: neo4j-graphiti
+      BACKUP_STOP_SERVICE_TIMEOUT: 10m
+      EXEC_LABEL: neo4j-backup-hooks
+      EXEC_FORWARD_OUTPUT: true
+      
+      # Storage configuration
+      BACKUP_ARCHIVE: /archive/weekly
+      BACKUP_LATEST_SYMLINK: neo4j-weekly-latest.tar.gz
+      BACKUP_COMPRESSION: zst  # Better compression for weekly archives
+      
+      # Notifications
+      NOTIFICATION_LEVEL: ${NOTIFICATION_LEVEL:-error}
+      NOTIFICATION_URLS: ${NOTIFICATION_URLS:-}
+      
+    volumes:
+      # Neo4j volumes
+      - neo4j-data:/backup/data:ro
+      - neo4j-logs:/backup/logs:ro
+      - neo4j-import:/backup/import:ro
+      - neo4j-plugins:/backup/plugins:ro
+      - neo4j-conf:/backup/conf:ro
+      - neo4j-metrics:/backup/metrics:ro
+      
+      # System access
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      
+      # Storage
+      - ${BACKUP_DIR:-${HOME}/Neo4jBackups}/weekly:/archive/weekly
+      # - /Volumes/${EXTERNAL_DRIVE:-SanDisk}/Neo4jBackups:/external:rw
+      
+      # Scripts
+      - ./scripts:/scripts:ro
+      
+    labels:
+      - docker-volume-backup.exec-pre=/scripts/backup-hooks.sh pre-backup weekly
+      - docker-volume-backup.archive-post=/scripts/backup-hooks.sh post-backup weekly
+      
+    networks:
+      - orbstack-shared
+      
+    profiles:
+      - backup
+      - weekly
+
+  # Monthly backups with 12-month retention (1st of month)
+  backup-monthly:
+    image: offen/docker-volume-backup:${BACKUP_VERSION:-v2.43.0}
+    container_name: neo4j-backup-monthly
+    restart: unless-stopped
+    environment:
+      # Schedule and retention
+      BACKUP_FILENAME: neo4j-monthly-%Y-%m.tar.zst
+      BACKUP_CRON_EXPRESSION: ${BACKUP_CRON_MONTHLY:-0 4 1 * *}  # 1st at 4 AM
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_MONTHLY:-365}
+      BACKUP_PRUNING_PREFIX: neo4j-monthly-
+      
+      # Container management
+      BACKUP_STOP_DURING_BACKUP_LABEL: neo4j-graphiti
+      BACKUP_STOP_SERVICE_TIMEOUT: 15m  # Longer timeout for monthly
+      EXEC_LABEL: neo4j-backup-hooks
+      EXEC_FORWARD_OUTPUT: true
+      
+      # Storage configuration
+      BACKUP_ARCHIVE: /archive/monthly
+      BACKUP_LATEST_SYMLINK: neo4j-monthly-latest.tar.zst
+      BACKUP_COMPRESSION: zst  # Maximum compression for long-term storage
+      
+      # Notifications
+      NOTIFICATION_LEVEL: ${NOTIFICATION_LEVEL:-info}  # More verbose for monthly
+      NOTIFICATION_URLS: ${NOTIFICATION_URLS:-}
+      
+    volumes:
+      # Complete backup including all data
+      - neo4j-data:/backup/data:ro
+      - neo4j-logs:/backup/logs:ro
+      - neo4j-import:/backup/import:ro
+      - neo4j-plugins:/backup/plugins:ro
+      - neo4j-conf:/backup/conf:ro
+      - neo4j-metrics:/backup/metrics:ro
+      - neo4j-heap-dumps:/backup/heap-dumps:ro
+      
+      # System access
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      
+      # Storage
+      - ${BACKUP_DIR:-${HOME}/Neo4jBackups}/monthly:/archive/monthly
+      # - /Volumes/${EXTERNAL_DRIVE:-SanDisk}/Neo4jBackups:/external:rw
+      
+      # Scripts
+      - ./scripts:/scripts:ro
+      
+    labels:
+      - docker-volume-backup.exec-pre=/scripts/backup-hooks.sh pre-backup monthly
+      - docker-volume-backup.archive-post=/scripts/backup-hooks.sh post-backup monthly
+      
+    networks:
+      - orbstack-shared
+      
+    profiles:
+      - backup
+      - monthly
+
+  # Backup metrics exporter (lightweight monitoring)
+  backup-monitor:
+    image: alpine:latest
+    container_name: neo4j-backup-monitor
+    restart: unless-stopped
+    command: |
+      sh -c '
+        apk add --no-cache curl jq &&
+        while true; do
+          echo "Checking backup status..."
+          
+          # Check latest backup timestamps
+          for tier in daily weekly monthly; do
+            if [ -d /backups/$tier ]; then
+              latest=$(ls -t /backups/$tier/*.tar.* 2>/dev/null | head -1)
+              if [ -n "$latest" ]; then
+                timestamp=$(stat -c %Y "$latest" 2>/dev/null || stat -f %m "$latest")
+                size=$(stat -c %s "$latest" 2>/dev/null || stat -f %z "$latest")
+                echo "{\"tier\": \"$tier\", \"timestamp\": $timestamp, \"size\": $size}" > /metrics/backup-$tier.json
+              fi
+            fi
+          done
+          
+          # Check Neo4j health before next backup
+          if curl -s http://neo4j-graphiti:7474/db/neo4j/cluster/overview > /dev/null; then
+            echo "{\"status\": \"healthy\", \"timestamp\": $(date +%s)}" > /metrics/neo4j-health.json
+          else
+            echo "{\"status\": \"unhealthy\", \"timestamp\": $(date +%s)}" > /metrics/neo4j-health.json
+          fi
+          
+          # Export Prometheus metrics
+          echo "# HELP neo4j_backup_last_success_timestamp Last successful backup timestamp" > /metrics/backup.prom
+          echo "# TYPE neo4j_backup_last_success_timestamp gauge" >> /metrics/backup.prom
+          
+          for tier in daily weekly monthly; do
+            if [ -f /metrics/backup-$tier.json ]; then
+              timestamp=$(jq -r .timestamp /metrics/backup-$tier.json)
+              size=$(jq -r .size /metrics/backup-$tier.json)
+              echo "neo4j_backup_last_success_timestamp{tier=\"$tier\"} $timestamp" >> /metrics/backup.prom
+              echo "neo4j_backup_size_bytes{tier=\"$tier\"} $size" >> /metrics/backup.prom
+            fi
+          done
+          
+          sleep 300  # Check every 5 minutes
+        done
+      '
+    volumes:
+      - ${BACKUP_DIR:-${HOME}/Neo4jBackups}:/backups:ro
+      - neo4j-metrics:/metrics:rw
+    networks:
+      - orbstack-shared
+    profiles:
+      - backup
+      - monitor
+
+  # Manual backup trigger (on-demand)
+  backup-manual:
+    image: offen/docker-volume-backup:${BACKUP_VERSION:-v2.43.0}
+    container_name: neo4j-backup-manual
+    profiles:
+      - manual
+    entrypoint: backup
+    environment:
+      BACKUP_FILENAME: neo4j-manual-%Y-%m-%d_%H-%M-%S.tar.gz
+      BACKUP_ARCHIVE: /archive/manual
+      BACKUP_STOP_DURING_BACKUP_LABEL: neo4j-graphiti
+      BACKUP_STOP_SERVICE_TIMEOUT: 10m
+      EXEC_LABEL: neo4j-backup-hooks
+      EXEC_FORWARD_OUTPUT: true
+      BACKUP_COMPRESSION: gz
+    volumes:
+      # All Neo4j volumes
+      - neo4j-data:/backup/data:ro
+      - neo4j-logs:/backup/logs:ro
+      - neo4j-import:/backup/import:ro
+      - neo4j-plugins:/backup/plugins:ro
+      - neo4j-conf:/backup/conf:ro
+      - neo4j-metrics:/backup/metrics:ro
+      
+      # System access
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      
+      # Storage
+      - ${BACKUP_DIR:-${HOME}/Neo4jBackups}/manual:/archive/manual
+      
+      # Scripts
+      - ./scripts:/scripts:ro
+      
+    labels:
+      - docker-volume-backup.exec-pre=/scripts/backup-hooks.sh pre-backup manual
+      - docker-volume-backup.archive-post=/scripts/backup-hooks.sh post-backup manual
+      
+    networks:
+      - orbstack-shared
+
+  # Emergency dump service (for critical situations)
+  backup-emergency:
+    image: neo4j:5.26.0
+    container_name: neo4j-backup-emergency
+    profiles:
+      - emergency
+    entrypoint: |
+      bash -c '
+        echo "Emergency Neo4j dump starting..."
+        neo4j-admin database dump \
+          --to-path=/dumps \
+          --overwrite-destination=true \
+          --verbose \
+          neo4j
+        echo "Emergency dump completed: /dumps/neo4j.dump"
+      '
+    volumes:
+      - neo4j-data:/data:ro
+      - ${BACKUP_DIR:-${HOME}/Neo4jBackups}/emergency:/dumps
+    networks:
+      - orbstack-shared
+
+# Use the shared OrbStack network
+networks:
+  orbstack-shared:
+    external: true
+    name: orbstack-shared
+
+# Reference existing volumes from main stack
+volumes:
+  neo4j-data:
+    external: true
+    name: graphiti-neo4j_neo4j-data
+    
+  neo4j-logs:
+    external: true
+    name: graphiti-neo4j_neo4j-logs
+    
+  neo4j-import:
+    external: true
+    name: graphiti-neo4j_neo4j-import
+    
+  neo4j-plugins:
+    external: true
+    name: graphiti-neo4j_neo4j-plugins
+    
+  neo4j-conf:
+    external: true
+    name: graphiti-neo4j_neo4j-conf
+    
+  # Memory forensics volumes
+  neo4j-metrics:
+    driver: local
+    
+  neo4j-heap-dumps:
+    driver: local

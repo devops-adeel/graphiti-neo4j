@@ -17,12 +17,28 @@ services:
       - NEO4J_server_memory_heap_max__size=4g
       - NEO4J_server_memory_pagecache_size=8g
       
+      # Transaction Memory Limits (prevent OOM from large queries)
+      - NEO4J_db_memory_transaction_global_max__size=2g
+      - NEO4J_db_memory_transaction_max__size=512m
+      - NEO4J_server_memory_off__heap_transaction__max__size=512m
+      
+      # JVM Heap Dump Configuration (critical for forensics)
+      - NEO4J_server_jvm_additional=-XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/data/dumps -XX:+ExitOnOutOfMemoryError -Xlog:gc*:file=/logs/gc.log:time,uptime,level,tags:filecount=10,filesize=10m
+      
+      # Enable JMX for monitoring
+      - NEO4J_server_metrics_enabled=true
+      - NEO4J_server_metrics_jmx_enabled=true
+      - NEO4J_server_metrics_prometheus_enabled=true
+      - NEO4J_server_metrics_prometheus_endpoint=0.0.0.0:2004
+      
       # Database Configuration
       - NEO4J_initial_dbms_default__database=neo4j
       
       # Query Logging (helpful for debugging)
       - NEO4J_db_logs_query_enabled=INFO
       - NEO4J_db_logs_query_threshold=100ms
+      - NEO4J_db_logs_query_allocation_logging_enabled=true
+      - NEO4J_db_logs_query_page_logging_enabled=true
       
       # Accept license
       - NEO4J_ACCEPT_LICENSE_AGREEMENT=yes
@@ -30,6 +46,7 @@ services:
     ports:
       - "7474:7474"  # Browser UI
       - "7687:7687"  # Bolt protocol (for Graphiti connections)
+      - "2004:2004"  # Prometheus metrics endpoint
     
     volumes:
       # Use named volumes for performance (OrbStack optimized)
@@ -37,6 +54,7 @@ services:
       - neo4j_logs:/logs
       # - ./conf:/conf:ro  # Disabled - using env vars instead
       - ./backups:/backups  # For backup/restore operations
+      - ./heap_dumps:/data/dumps  # Heap dumps for memory forensics
     
     healthcheck:
       test: ["CMD-SHELL", "neo4j status || exit 1"]
@@ -45,17 +63,20 @@ services:
       retries: 5
       start_period: 40s
     
+    # Memory limits to prevent host OOM
+    mem_limit: 14g
+    mem_reservation: 12g
+    memswap_limit: 14g
+    
     restart: unless-stopped
     
     networks:
-      - graphiti-network
+      - default
 
 networks:
-  graphiti-network:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.28.0.0/16
+  default:
+    external: true
+    name: orbstack-shared
 
 volumes:
   neo4j_data:
