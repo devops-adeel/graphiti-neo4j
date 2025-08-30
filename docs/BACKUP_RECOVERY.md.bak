@@ -1,0 +1,506 @@
+# Neo4j Backup & Recovery Guide for Graphiti
+
+## Overview
+
+This document provides comprehensive guidance for backing up and recovering Neo4j data in the Graphiti knowledge graph system. The backup strategy addresses Neo4j Community Edition's requirement for stopping the database during backups while providing sophisticated multi-tier retention and automatic external drive synchronization.
+
+## Architecture
+
+### Backup Tiers
+
+1. **Daily Backups** (7-day retention)
+   - Scheduled: 2 AM daily
+   - Format: tar.gz (fast compression)
+   - Includes: All data, logs, configuration
+   - Purpose: Quick recovery from recent issues
+
+2. **Weekly Backups** (4-week retention)
+   - Scheduled: 3 AM Sundays
+   - Format: tar.zst (better compression)
+   - Includes: Full database snapshot
+   - Purpose: Protection against data corruption
+
+3. **Monthly Backups** (12-month retention)
+   - Scheduled: 4 AM on 1st of month
+   - Format: tar.zst (maximum compression)
+   - Includes: Complete system state including heap dumps
+   - Purpose: Long-term archival and compliance
+
+### Key Components
+
+- **offen/docker-volume-backup**: Industrial-grade backup orchestration
+- **Neo4j Community Edition**: Requires database shutdown for consistency
+- **External Drive Sync**: Automatic synchronization to /Volumes/SanDisk
+- **Memory Forensics Integration**: Captures heap state before critical backups
+
+## Quick Start
+
+### Enable Automated Backups
+
+```bash
+# Start all backup services
+./scripts/backup.sh start
+
+# Verify services are running
+./scripts/backup.sh status
+```
+
+### Create Manual Backup
+
+```bash
+# Quick manual backup
+./scripts/backup.sh manual
+
+# Or using docker-compose directly
+docker compose -f docker-compose.yml -f docker-compose.backup.yml run --rm backup-manual
+```
+
+### Verify Backups
+
+```bash
+# Quick verification of latest daily backup
+./scripts/verify-backup.sh quick daily
+
+# Full verification with extraction
+./scripts/verify-backup.sh full weekly
+
+# Test restore to temporary container
+./scripts/verify-backup.sh restore monthly
+
+# Check all backup tiers
+./scripts/verify-backup.sh all
+```
+
+## Configuration
+
+### Primary Settings (`backup/backup.conf`)
+
+```bash
+# Backup locations
+PRIMARY_BACKUP_DIR="${HOME}/Neo4jBackups"
+EXTERNAL_DRIVE_NAME="SanDisk"
+
+# Retention policies
+BACKUP_RETENTION_DAILY=7
+BACKUP_RETENTION_WEEKLY=28
+BACKUP_RETENTION_MONTHLY=365
+
+# Schedules (cron format)
+BACKUP_CRON_DAILY="0 2 * * *"
+BACKUP_CRON_WEEKLY="0 3 * * 0"
+BACKUP_CRON_MONTHLY="0 4 1 * *"
+```
+
+### Memory Integration
+
+The backup system integrates with memory forensics:
+
+```bash
+# Capture heap state before backup
+NEO4J_HEAP_THRESHOLD="85"  # Warn if heap > 85%
+BACKUP_HEAP_DUMPS=true      # Include in monthly backups
+MAX_HEAP_DUMP_SIZE="2G"     # Skip large dumps
+```
+
+## Recovery Procedures
+
+### 1. Quick Recovery (Latest Backup)
+
+For recovering from the most recent backup:
+
+```bash
+# Stop Neo4j
+docker compose down
+
+# Find latest backup
+LATEST_BACKUP=$(ls -t ~/Neo4jBackups/daily/*.tar.gz | head -1)
+
+# Extract to volumes
+docker run --rm \
+  -v neo4j-data:/data \
+  -v ${LATEST_BACKUP}:/backup.tar.gz:ro \
+  alpine sh -c "cd / && tar -xzf /backup.tar.gz"
+
+# Start Neo4j
+docker compose up -d
+
+# Verify
+docker exec neo4j-graphiti cypher-shell -u neo4j -p $NEO4J_PASSWORD \
+  "MATCH (n) RETURN count(n)"
+```
+
+### 2. Point-in-Time Recovery
+
+For recovering to a specific date:
+
+```bash
+# List available backups
+ls -la ~/Neo4jBackups/daily/neo4j-daily-*.tar.gz
+ls -la ~/Neo4jBackups/weekly/neo4j-weekly-*.tar.gz
+
+# Choose specific backup
+BACKUP_FILE="~/Neo4jBackups/daily/neo4j-daily-20240115_020000.tar.gz"
+
+# Stop Neo4j and backup current state
+docker compose down
+./scripts/backup.sh emergency  # Creates emergency backup
+
+# Clear existing data
+docker volume rm graphiti-neo4j_neo4j-data
+
+# Restore chosen backup
+docker run --rm \
+  -v graphiti-neo4j_neo4j-data:/data \
+  -v ${BACKUP_FILE}:/backup.tar.gz:ro \
+  alpine sh -c "cd / && tar -xzf /backup.tar.gz && mv backup/data/* /data/"
+
+# Start Neo4j
+docker compose up -d
+```
+
+### 3. Emergency Recovery
+
+When Neo4j won't start or is corrupted:
+
+```bash
+# Create emergency backup of current state
+./scripts/backup.sh emergency
+
+# Remove all Neo4j containers and volumes
+docker compose down -v
+
+# Recreate volumes
+docker volume create graphiti-neo4j_neo4j-data
+docker volume create graphiti-neo4j_neo4j-logs
+
+# Restore from known good backup
+GOOD_BACKUP="~/Neo4jBackups/weekly/neo4j-weekly-latest.tar.gz"
+docker run --rm \
+  -v graphiti-neo4j_neo4j-data:/data \
+  -v graphiti-neo4j_neo4j-logs:/logs \
+  -v ${GOOD_BACKUP}:/backup.tar.gz:ro \
+  alpine sh -c "cd / && tar -xzf /backup.tar.gz"
+
+# Start fresh
+docker compose up -d
+```
+
+### 4. Partial Recovery (Specific Database)
+
+For recovering just the neo4j database without affecting configuration:
+
+```bash
+# Stop Neo4j
+docker compose stop neo4j
+
+# Extract only database files
+BACKUP_FILE="~/Neo4jBackups/daily/neo4j-daily-latest.tar.gz"
+docker run --rm \
+  -v neo4j-data:/data \
+  -v ${BACKUP_FILE}:/backup.tar.gz:ro \
+  alpine sh -c "
+    cd /tmp && \
+    tar -xzf /backup.tar.gz backup/data/databases/neo4j && \
+    rm -rf /data/databases/neo4j && \
+    mv backup/data/databases/neo4j /data/databases/
+  "
+
+# Restart Neo4j
+docker compose start neo4j
+```
+
+## Disaster Recovery
+
+### Complete System Failure
+
+1. **Assess the Situation**
+   ```bash
+   # Check Docker status
+   docker ps -a
+   
+   # Check volume integrity
+   docker volume ls
+   docker volume inspect graphiti-neo4j_neo4j-data
+   
+   # Check disk space
+   df -h ~/Neo4jBackups
+   ```
+
+2. **Locate Backups**
+   ```bash
+   # Check local backups
+   ls -la ~/Neo4jBackups/{daily,weekly,monthly}/
+   
+   # Check external drive
+   ls -la /Volumes/SanDisk/Neo4jBackups/
+   
+   # Find most recent verified backup
+   ./scripts/verify-backup.sh all
+   ```
+
+3. **Clean Recovery**
+   ```bash
+   # Complete cleanup
+   docker compose down -v
+   docker system prune -a
+   
+   # Fresh start
+   docker compose up -d neo4j
+   docker compose stop neo4j
+   
+   # Restore from external if available
+   EXTERNAL_BACKUP="/Volumes/SanDisk/Neo4jBackups/monthly/neo4j-monthly-latest.tar.zst"
+   if [ -f "$EXTERNAL_BACKUP" ]; then
+     docker run --rm \
+       -v neo4j-data:/data \
+       -v ${EXTERNAL_BACKUP}:/backup.tar.zst:ro \
+       alpine sh -c "cd / && tar -xJf /backup.tar.zst"
+   fi
+   
+   # Start and verify
+   docker compose up -d
+   ```
+
+### Data Corruption Recovery
+
+Signs of corruption:
+- Neo4j fails to start with store corruption errors
+- Inconsistent query results
+- Missing relationships or nodes
+
+Recovery steps:
+
+```bash
+# 1. Diagnose corruption
+docker logs neo4j-graphiti | grep -i "corrupt\|error\|fail"
+
+# 2. Attempt repair (if minor)
+docker exec neo4j-graphiti neo4j-admin database check neo4j
+
+# 3. If repair fails, restore from backup
+./scripts/verify-backup.sh restore daily
+
+# 4. Verify data integrity post-restore
+docker exec neo4j-graphiti cypher-shell -u neo4j -p $NEO4J_PASSWORD \
+  "CALL db.stats.retrieve('GRAPH') YIELD data RETURN data"
+```
+
+## Backup Verification
+
+### Automated Verification
+
+The system automatically verifies backups after creation:
+
+```bash
+# Automatic checks performed:
+- SHA256 checksum generation and validation
+- Tar archive integrity
+- File structure verification
+- Metrics export for monitoring
+```
+
+### Manual Verification
+
+```bash
+# Quick check (tar integrity)
+./scripts/verify-backup.sh quick daily
+
+# Full extraction test
+./scripts/verify-backup.sh full weekly
+
+# Complete restore test (spins up test container)
+./scripts/verify-backup.sh restore monthly
+
+# Compare backup sizes for anomalies
+./scripts/verify-backup.sh compare daily
+
+# Show statistics
+./scripts/verify-backup.sh stats
+```
+
+## Monitoring & Alerts
+
+### Prometheus Metrics
+
+The backup system exports metrics to port 2004:
+
+```prometheus
+# Key metrics
+neo4j_backup_last_success_timestamp{tier="daily"}
+neo4j_backup_size_bytes{tier="weekly"}
+neo4j_backup_duration_seconds{tier="monthly"}
+```
+
+### Health Checks
+
+```bash
+# Check backup health
+curl http://localhost:2004/metrics | grep neo4j_backup
+
+# Monitor backup age
+./scripts/backup.sh status
+
+# Alert if backup is older than threshold
+LAST_BACKUP=$(stat -f%m ~/Neo4jBackups/daily/neo4j-daily-latest.tar.gz)
+AGE=$(($(date +%s) - $LAST_BACKUP))
+if [ $AGE -gt 86400 ]; then
+  echo "WARNING: Last backup is older than 24 hours!"
+fi
+```
+
+## Best Practices
+
+### 1. Regular Testing
+- Test restore procedure monthly
+- Verify backup integrity weekly
+- Document recovery times
+
+### 2. External Storage
+- Always maintain external drive backups
+- Rotate external drives quarterly
+- Store one drive off-site
+
+### 3. Memory Considerations
+- Monitor heap usage before backups
+- Clear transaction logs regularly
+- Force GC if heap > 85%
+
+### 4. Graphiti-Specific
+- Backup during low activity periods
+- Preserve episode boundaries
+- Include session metadata
+
+## Troubleshooting
+
+### Backup Failures
+
+**Problem**: Backup fails with timeout error
+```bash
+# Solution: Increase timeout
+export BACKUP_STOP_SERVICE_TIMEOUT=20m
+docker compose -f docker-compose.backup.yml up -d
+```
+
+**Problem**: External drive not syncing
+```bash
+# Solution: Check mount and permissions
+ls -la /Volumes/SanDisk
+# Manually sync if needed
+rsync -av ~/Neo4jBackups/ /Volumes/SanDisk/Neo4jBackups/
+```
+
+**Problem**: Out of disk space
+```bash
+# Solution: Clean old backups
+find ~/Neo4jBackups -name "*.tar.*" -mtime +30 -delete
+# Reduce retention in backup.conf
+```
+
+### Recovery Issues
+
+**Problem**: Neo4j won't start after restore
+```bash
+# Check logs
+docker logs neo4j-graphiti
+
+# Fix permissions
+docker run --rm -v neo4j-data:/data alpine \
+  chown -R 7474:7474 /data
+
+# Clear transaction logs
+docker run --rm -v neo4j-data:/data alpine \
+  rm -rf /data/databases/neo4j/transaction
+```
+
+**Problem**: Data missing after restore
+```bash
+# Verify backup contents
+tar -tzf backup.tar.gz | grep "databases/neo4j"
+
+# Check extraction path
+docker run --rm -v neo4j-data:/data alpine ls -la /data/databases/
+```
+
+## Automation Scripts
+
+### Daily Health Check
+```bash
+#!/bin/bash
+# Add to crontab: 0 8 * * * /path/to/backup-health.sh
+
+LAST_BACKUP=$(find ~/Neo4jBackups/daily -name "*.tar.gz" -mtime -1 | head -1)
+if [ -z "$LAST_BACKUP" ]; then
+  echo "CRITICAL: No backup in last 24 hours" | mail -s "Neo4j Backup Alert" admin@example.com
+fi
+```
+
+### Automated Restore Test
+```bash
+#!/bin/bash
+# Monthly restore test
+
+./scripts/verify-backup.sh restore monthly
+if [ $? -ne 0 ]; then
+  echo "Monthly restore test failed" | mail -s "Neo4j Restore Test Failed" admin@example.com
+fi
+```
+
+## Appendix
+
+### File Structure
+
+```
+~/Neo4jBackups/
+├── daily/
+│   ├── neo4j-daily-20240115_020000.tar.gz
+│   └── neo4j-daily-20240115_020000.tar.gz.sha256
+├── weekly/
+│   ├── neo4j-weekly-20240114.tar.zst
+│   └── neo4j-weekly-20240114.tar.zst.sha256
+├── monthly/
+│   ├── neo4j-monthly-202401.tar.zst
+│   └── neo4j-monthly-202401.tar.zst.sha256
+├── manual/
+│   └── neo4j-manual-*.tar.gz
+└── emergency/
+    └── neo4j-emergency-*.tar.gz
+```
+
+### Environment Variables
+
+```bash
+# Core settings
+PRIMARY_BACKUP_DIR      # Base backup directory
+EXTERNAL_DRIVE_NAME     # External drive name
+CONTAINER_NAME          # Neo4j container name
+
+# Scheduling
+BACKUP_CRON_DAILY       # Daily backup schedule
+BACKUP_CRON_WEEKLY      # Weekly backup schedule
+BACKUP_CRON_MONTHLY     # Monthly backup schedule
+
+# Retention
+BACKUP_RETENTION_DAILY  # Days to keep daily backups
+BACKUP_RETENTION_WEEKLY # Days to keep weekly backups
+BACKUP_RETENTION_MONTHLY # Days to keep monthly backups
+
+# Features
+BACKUP_VERIFY           # Enable verification
+BACKUP_CHECKSUM         # Generate checksums
+SYNC_ON_BACKUP          # Auto-sync to external
+```
+
+### Related Documentation
+
+- [Memory Forensics Guide](./MEMORY_FORENSICS.md)
+- [Neo4j Performance Tuning](./PERFORMANCE.md)
+- [Graphiti Integration](./GRAPHITI_INTEGRATION.md)
+- [OrbStack Configuration](../README.md#orbstack)
+
+## Support
+
+For issues or questions:
+1. Check backup logs: `docker logs neo4j-backup-daily`
+2. Run diagnostics: `./scripts/backup.sh status`
+3. Verify configuration: `cat backup/backup.conf`
+4. Test backup system: `./scripts/backup-hooks.sh test`

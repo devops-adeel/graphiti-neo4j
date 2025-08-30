@@ -1,106 +1,140 @@
 # Neo4j for Graphiti on OrbStack
 
-Optimized Neo4j setup for multiple Graphiti-powered AI agents running locally on macOS.
+Temporal knowledge graph infrastructure for Graphiti-powered AI agents. Build chatbots with memory, RAG with relationships, and AI that understands time.
 
-## Quick Start
+## 🚀 Quick Start
+
+**New to Graphiti?** Start with our [5-Minute Chatbot Guide](docs/user/quickstart/5-minute-chatbot.md) →
 
 ```bash
-# Start Neo4j
+# 1. Clone and setup
+git clone https://github.com/yourusername/graphiti-neo4j.git
+cd graphiti-neo4j
+cp .env.example .env  # Add your Neo4j password
+
+# 2. Start Neo4j
 docker-compose up -d
 
-# Check health
-docker-compose ps
-docker logs neo4j-graphiti
-
-# Access Neo4j Browser
-open http://localhost:7474
-# or via OrbStack domain
-open http://neo4j.graphiti.local:7474
+# 3. Build your first AI agent with memory
+python docs/user/quickstart/5-minute-chatbot.md
 ```
 
-## Connection Details
+## 📚 Documentation
 
-- **Bolt URI**: `bolt://localhost:7687`
-- **OrbStack Domain**: `bolt://neo4j.graphiti.local:7687`
-- **Username**: `neo4j`
-- **Password**: See `.env` file
+### For AI/ML Developers
 
-## Features
+#### Quick Start
+- **[5-Minute Chatbot](docs/user/quickstart/5-minute-chatbot.md)** - Build your first memory-enabled agent
+- **[Episode Patterns Cookbook](docs/user/quickstart/episode-patterns-cookbook.md)** - Copy-paste patterns for common use cases
+- **[Backup & Recovery](docs/user/guides/backup-and-recovery.md)** - Protect your knowledge graph
 
-- ✅ Optimized for personal use (4GB heap + 6GB page cache)
-- ✅ OrbStack custom domains for reliable networking
-- ✅ Persistent data with named volumes
-- ✅ Automatic health checks and restarts
-- ✅ Query logging for debugging
-- ✅ Simple backup script
+#### Core Concepts  
+- **[Episodes First](docs/dev/concepts/episodes-first.md)** - Why episodes, not nodes and edges
+- **[Temporal Knowledge vs Storage](docs/dev/concepts/temporal-knowledge-vs-storage.md)** - Understanding the layers
+- **[Graph vs Vector RAG](docs/dev/concepts/graph-vs-vector-rag.md)** - 50x performance for relationships
 
-## Backup & Restore
+#### Deep Dives
+- **[Memory Configuration](docs/dev/performance/memory-forensics-guide.md)** - JVM tuning for Python developers
+- **[Backup Architecture](docs/dev/architecture/backup-system.md)** - Enterprise-grade data protection
+- **[Examples](examples/)** - Complete applications and notebooks
 
-```bash
-# Run backup
-./scripts/backup.sh
+## 🔗 Connection Details
 
-# Backups are stored in ./backups/
-# Automatically keeps last 7 days
+```python
+# For Graphiti applications
+from graphiti_core import Graphiti
+
+graphiti = Graphiti(
+    uri="bolt://localhost:7687",  # or "bolt://neo4j.graphiti.local:7687"
+    user="neo4j",
+    password=os.getenv("NEO4J_PASSWORD")
+)
 ```
 
-## Memory Configuration
+## ✨ Key Features
 
-Optimized for 36GB RAM system:
-- **Heap**: 4GB (initial and max)
-- **Page Cache**: 6GB
-- **Total Neo4j**: ~10GB
-- **Remaining for OS/Apps**: ~26GB
+### Episode-First Architecture
+- **Temporal Knowledge Graphs** - Facts that change over time
+- **Automatic Entity Extraction** - LLM-powered understanding
+- **Relationship Discovery** - Find hidden connections
+- **50x Faster Than Vector DBs** - For relationship queries
 
-## Monitoring
+### Production Ready
+- **Multi-Tier Backups** - Daily/weekly/monthly with external sync
+- **Memory Forensics** - Prevent and debug OOM issues
+- **Security Scanning** - Pre-commit hooks with Gitleaks
+- **Prometheus Metrics** - Full observability on port 2004
+- **Langfuse Integration** - Trace every episode through the pipeline
+
+### Optimized for Graphiti
+- **4GB Heap + 8GB Page Cache** - Tuned for 36GB systems
+- **Episode Batching** - Prevent memory explosions
+- **JVM Warmup Handling** - Automatic cache priming
+- **OrbStack Domains** - Reliable container networking
+
+## 🛡️ Backup & Recovery
 
 ```bash
+# Enable automatic backups
+make backup-start
+
+# Create manual backup
+make backup
+
+# Restore interactively
+make backup-restore
+```
+
+See [Backup Guide](docs/user/guides/backup-and-recovery.md) for details.
+
+## 🔍 Monitoring & Troubleshooting
+
+```bash
+# Check system health
+make health
+
+# Monitor memory usage
+make monitor
+
 # View logs
 docker logs -f neo4j-graphiti
 
-# Check memory usage
-docker stats neo4j-graphiti
-
-# Access metrics
-curl http://localhost:7474/db/neo4j/cluster/overview
+# Emergency procedures
+make emergency-gc           # Force garbage collection
+make emergency-heap-dump    # Analyze memory issues
 ```
 
-## Troubleshooting
+See [Memory Forensics Guide](docs/dev/performance/memory-forensics-guide.md) for debugging.
 
-### Container won't start
+## 🚧 Common Issues
+
+### Slow First Query?
+This is normal - JVM needs 40s to warm up. First query: 500-1000ms, subsequent: 50-100ms.
+
+### Connection Refused?
 ```bash
-# Check logs
-docker logs neo4j-graphiti
-
-# Verify OrbStack is running
-orbctl status
-
-# Reset if needed
-docker-compose down -v
-docker-compose up -d
+# Check if Neo4j is ready
+docker logs neo4j-graphiti | grep "Started"
 ```
 
-### Connection issues
-- Use `localhost:7687` for local connections
-- Use `neo4j.graphiti.local:7687` for OrbStack domain
-- Ensure firewall allows ports 7474 and 7687
-
-### Memory issues
-- Adjust heap/pagecache in `docker-compose.yml`
-- Monitor with `docker stats`
-
-## Integration with Graphiti
-
-Your Graphiti configuration should use:
-```python
-NEO4J_URI=bolt://localhost:7687
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=<your-password>
+### Out of Memory?
+```bash
+# Use episode batching
+# Process in batches of 10, not 1000
+# See: docs/user/quickstart/episode-patterns-cookbook.md
 ```
 
-## Notes
+## 📖 Learn More
 
-- Single shared database for all agents (no group_id separation)
-- No APOC/GDS plugins (not needed for Graphiti)
-- Data persists in Docker named volumes
-- OrbStack provides optimized performance on macOS
+- **[Why Graph beats Vector](docs/dev/concepts/graph-vs-vector-rag.md)** - 50x performance proof
+- **[Customer Support Example](docs/user/examples/customer-support-system/)** - Production system
+- **[JVM for Python Devs](docs/dev/performance/jvm-for-python-developers.md)** - Understanding Neo4j
+- **[Langfuse Integration](docs/dev/architecture/layer-3-langfuse.md)** - Observability setup
+
+## 🤝 Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup.
+
+## 📄 License
+
+MIT - See [LICENSE](LICENSE) file.
