@@ -1,0 +1,86 @@
+# git-cliff configuration for Neo4j-Graphiti
+# Generates changelogs from conventional commits
+
+[changelog]
+# Changelog header
+header = """
+# Changelog
+
+All notable changes to Neo4j infrastructure for Graphiti agents will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+"""
+# Template for the changelog body
+body = """
+{% if version %}\
+    ## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}\
+    ## [Unreleased]
+{% endif %}\
+
+### 🚨 Critical Security & Memory Fixes
+{% for commit in commits | filter(attribute="group", value="Critical") %}
+    - {{ commit.message | upper_first | trim }}\
+{% endfor %}
+
+{% for group, commits in commits | group_by(attribute="group") %}
+    {% if group != "Critical" %}
+    ### {{ group | upper_first }}
+    {% for commit in commits %}
+        - {% if commit.breaking %}[**BREAKING**] {% endif %}{{ commit.message | upper_first | trim }}\
+            {% if commit.body %} ({{ commit.body | trim }}){% endif %}\
+    {% endfor %}
+    {% endif %}
+{% endfor %}
+"""
+# Template for the changelog footer
+footer = """
+---
+Generated with [git-cliff](https://github.com/orhun/git-cliff)
+"""
+# Remove leading and trailing whitespace
+trim = true
+
+[git]
+# Parse conventional commits
+conventional_commits = true
+# Filter out commits that are not conventional
+filter_unconventional = false
+# Regex for parsing and grouping commits
+commit_parsers = [
+    { message = "^feat", group = "⚡ Features" },
+    { message = "^fix", group = "🐛 Bug Fixes" },
+    { message = "^perf", group = "🚀 Performance" },
+    { message = "^security", group = "Critical" },
+    { message = "^memory", group = "Critical" },
+    { message = "^docs", group = "📚 Documentation" },
+    { message = "^test", group = "🧪 Testing" },
+    { message = "^refactor", group = "♻️ Refactoring" },
+    { message = "^style", group = "🎨 Styling" },
+    { message = "^chore\\(release\\):", skip = true },
+    { message = "^chore\\(deps\\):", group = "📦 Dependencies" },
+    { message = "^chore", group = "🔧 Miscellaneous Tasks" },
+    { body = ".*security", group = "Critical" },
+    { body = ".*memory.*leak", group = "Critical" },
+    { body = ".*OOM", group = "Critical" },
+]
+# Protect against breaking changes
+protect_breaking_commits = true
+# Filter out commits matching regex
+filter_commits = false
+# Glob patterns for git tags to consider
+tag_pattern = "v[0-9]*"
+# Skip tags matching regex
+skip_tags = "v0.1.0-beta.1"
+# Ignore tags matching regex
+ignore_tags = ""
+# Sort commits inside sections
+sort_commits = "oldest"
+# Limit commits per release
+# limit_commits = 1000
+
+[remote.github]
+owner = "your-username"
+repo = "graphiti-neo4j"

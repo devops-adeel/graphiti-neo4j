@@ -1,0 +1,109 @@
+# Pre-commit hooks for Neo4j-Graphiti Security
+# Prevents accidental commits of secrets and sensitive data
+
+repos:
+  # Gitleaks - comprehensive secret scanning
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.0
+    hooks:
+      - id: gitleaks
+
+  # TruffleHog - deep secret detection with entropy analysis
+  - repo: https://github.com/trufflesecurity/trufflehog
+    rev: v3.63.0
+    hooks:
+      - id: trufflehog
+        name: TruffleHog Secret Scanner
+        entry: bash -c 'trufflehog filesystem . --no-update --fail --no-verification'
+        language: system
+        stages: [commit]
+
+  # Standard security and quality hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: check-case-conflict
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: detect-private-key
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: mixed-line-ending
+
+  # Detect secrets (additional layer)
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.4.0
+    hooks:
+      - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+        exclude: .*\.(lock|example)$
+
+  # Docker security
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.12.0
+    hooks:
+      - id: hadolint-docker
+        name: Lint Dockerfiles
+        entry: hadolint
+        language: docker_image
+        types: ["dockerfile"]
+
+  # Shell script checks
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.9.0.6
+    hooks:
+      - id: shellcheck
+        name: Check shell scripts
+        types: [shell]
+        args: ['-x']
+
+  # Python-specific checks
+  - repo: https://github.com/psf/black
+    rev: 23.12.1
+    hooks:
+      - id: black
+        language_version: python3.11
+
+  # Security checks for Python
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.5
+    hooks:
+      - id: bandit
+        args: ['-ll', '--skip', 'B101,B601']
+        exclude: tests/
+
+# Custom local hooks for Neo4j-specific checks
+  - repo: local
+    hooks:
+      - id: check-neo4j-credentials
+        name: Check for Neo4j credentials
+        entry: sh -c 'git diff --cached --name-only -z | xargs -0 grep -l "neo4j:" 2>/dev/null | grep -v ".example" && echo "ERROR - Neo4j credentials detected!" && exit 1 || exit 0'
+        language: system
+        pass_filenames: false
+      
+      - id: check-env-files
+        name: Check for .env files
+        entry: sh -c 'git diff --cached --name-only | grep -E "\.env$" | grep -v "\.example" && echo "ERROR - .env file detected!" && exit 1 || exit 0'
+        language: system
+        pass_filenames: false
+      
+      - id: check-bolt-uris
+        name: Check for hardcoded Bolt URIs
+        entry: sh -c 'git diff --cached --name-only -z | xargs -0 grep -l "bolt://.*:.*@" 2>/dev/null && echo "ERROR - Hardcoded Bolt URI with credentials detected!" && exit 1 || exit 0'
+        language: system
+        pass_filenames: false
+      
+      - id: check-heap-dumps
+        name: Check for heap dump files
+        entry: sh -c 'git diff --cached --name-only | grep -E "\.(hprof|dump)$" && echo "ERROR - Heap dump file detected!" && exit 1 || exit 0'
+        language: system
+        pass_filenames: false
+      
+      - id: validate-memory-config
+        name: Validate memory configuration
+        entry: sh -c 'if git diff --cached --name-only | grep -q "docker-compose.yml"; then grep -q "HeapDumpOnOutOfMemoryError" docker-compose.yml || (echo "WARNING: HeapDumpOnOutOfMemoryError not configured" && exit 1); fi; exit 0'
+        language: system
+        pass_filenames: false
