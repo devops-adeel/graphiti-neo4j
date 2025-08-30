@@ -1,7 +1,10 @@
 # Environment variables (contains passwords)
 .env
+.env.*
+!.env.1password
 .env.local
 .env.*.local
+secrets/.env
 
 # Backup files
 backups/*.backup

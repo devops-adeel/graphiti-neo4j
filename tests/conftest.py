@@ -26,10 +26,10 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Neo4j connection settings
-NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+# Neo4j connection settings - OrbStack domains only
+NEO4J_URI = os.getenv("NEO4J_URI", "bolt://neo4j.graphiti.local:7687")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
-NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")  # No default - must be set in .env
+NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")  # No default - must be set via 1Password
 # Neo4j database is specified at connection, not at client init
 
 # Test configuration

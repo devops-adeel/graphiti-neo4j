@@ -5,8 +5,11 @@ help:
 	@echo "Neo4j-Graphiti Infrastructure Management"
 	@echo "========================================"
 	@echo ""
+	@echo "Initial Setup (one-time):"
+	@echo "  make setup-vault  - Setup 1Password vault with Neo4j credentials"
+	@echo ""
 	@echo "Core Operations:"
-	@echo "  make up           - Start Neo4j with monitoring"
+	@echo "  make up           - Start Neo4j with 1Password secrets"
 	@echo "  make down         - Stop Neo4j gracefully"
 	@echo "  make restart      - Restart Neo4j (preserves data)"
 	@echo "  make reset        - Complete reset (DESTROYS DATA)"
@@ -39,25 +42,17 @@ help:
 	@echo "  make changelog    - Generate changelog"
 	@echo "  make release      - Prepare new release"
 
-# Core operations
-up:
-	@echo "Starting Neo4j with memory safety configuration..."
-	docker-compose up -d
-	@echo "Waiting for Neo4j to be ready (40s JVM warmup)..."
-	@sleep 5
-	@for i in {1..8}; do \
-		if docker exec neo4j-graphiti neo4j status 2>/dev/null | grep -q "is running"; then \
-			echo "✓ Neo4j is ready!"; \
-			break; \
-		fi; \
-		echo "  Waiting... ($$((i*5))s)"; \
-		sleep 5; \
-	done
-	@echo ""
-	@echo "Access points:"
-	@echo "  Browser: http://localhost:7474"
-	@echo "  Bolt:    bolt://localhost:7687"
-	@echo "  Metrics: http://localhost:2004/metrics"
+# Core operations (1Password secure-only)
+up: check-1password
+	@./scripts/deploy-secure.sh
+
+check-1password:
+	@command -v op >/dev/null 2>&1 || (echo "Error: 1Password CLI required. Install with: brew install --cask 1password-cli" && exit 1)
+	@op account list >/dev/null 2>&1 || (echo "Error: Not signed in to 1Password. Run: op signin" && exit 1)
+
+setup-vault:
+	@echo "Setting up 1Password vault with Neo4j credentials..."
+	@./scripts/setup-vault.sh
 
 down:
 	@echo "Stopping Neo4j gracefully..."
@@ -79,6 +74,7 @@ monitor:
 health:
 	@docker ps | grep neo4j-graphiti > /dev/null && echo "✓ Container running" || echo "✗ Container not running"
 	@docker exec neo4j-graphiti neo4j status 2>/dev/null | grep -q "is running" && echo "✓ Neo4j responding" || echo "✗ Neo4j not responding"
+	@echo "Access at: http://neo4j.graphiti.local:7474"
 	@docker stats neo4j-graphiti --no-stream
 
 logs:
